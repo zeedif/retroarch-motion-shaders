@@ -10,7 +10,6 @@ Layout it writes mirrors RetroArch's config dir, so the files can be pushed as t
   <out>/SwanStation/SwanStation.slangp
   <out>/Gambatte/gb.slangp, gbc.slangp     content-directory level (one core, two folders)
   <out>/mGBA/gba.slangp, gbc.slangp        gbc is only for Kirby Tilt 'n' Tumble (MBC7), which Gambatte cannot load
-  <out>/mGBA/<game>.slangp                 the few late GBA games that were made for backlit screens
 """
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -78,10 +77,4 @@ def gba(darken, gamma):
         'GLARE_INTENSITY = "0.05"', 'REFLECT_INTENSITY = "0.035"', 'REFLECT_BIAS = "0.0"', 'ACCEL_RELATIVE = "1"', ''])
 
 
-write('mGBA/gba.slangp', gba('0.5', '2.6'))        # original unlit AGB-001: games were made for this
-BACKLIT = gba('0.0', '2.2')                         # games made for the backlit SP / DS Lite (first released 2005 or later)
-# One ROM base name per line in late_gba_games.txt (next to this script, not committed): each gets its own preset with the lighter chain.
-late = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'late_gba_games.txt')
-if os.path.exists(late):
-    for name in [l.strip() for l in open(late, encoding='utf-8') if l.strip() and not l.startswith('#')]:
-        write('mGBA/%s.slangp' % name, BACKLIT)
+write('mGBA/gba.slangp', gba('0.5', '2.6'))   # the unlit AGB-001 look, for every game: the sources found no systematic palette change in later games

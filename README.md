@@ -58,5 +58,4 @@ and the glow stays put.
 - **Game Boy**: `handheld/gameboy.slangp` with the Pocket palette; its drop shadow already follows the accelerometer.
 - **Game Boy Color**: the library's `sunlight_shimmer-authentic_gbc_fast` chain (subpixel LCD, transparent light pixels, shadow that follows tilt).
   A chain that leaves out `film_noise_cache.slang` is silently dropped by RetroArch and the picture comes out unfiltered.
-- **GBA**: response time, BGR subpixel LCD (gamma 2.6), Pokefan531's colour LUT with darkening for the unlit AGB-001, faint glare. A lighter
-  variant without the darkening exists for games first released in 2005 or later (listed locally in `tools/late_gba_games.txt`).
+- **GBA**: response time, BGR subpixel LCD (gamma 2.6), Pokefan531's colour LUT with darkening for the unlit AGB-001, faint glare, for every game: the community sources found no systematic palette change in games released after the backlit models, and recommend one correction per platform (games with their own colour setting, such as Sonic Advance 3 or Final Fantasy Tactics Advance, should have it set to the plain GBA option).
