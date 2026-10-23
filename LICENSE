@@ -1,0 +1,6 @@
+CC0 1.0 Universal
+
+The shaders (shaders/*.slang) and tools (tools/*.py) in this repository are dedicated to the public domain under CC0 1.0:
+https://creativecommons.org/publicdomain/zero/1.0/
+
+The presets reference third-party shaders from libretro/slang-shaders, which keep their own licenses; none of that code is included here.

@@ -1,0 +1,5 @@
+tools/late_gba_games.txt
+presets/android/mGBA/*
+!presets/android/mGBA/gba.slangp
+!presets/android/mGBA/gbc.slangp
+__pycache__/
