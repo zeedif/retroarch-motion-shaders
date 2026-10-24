@@ -77,7 +77,7 @@ layout(std140, set = 0, binding = 0) uniform UBO
 #pragma parameter ZGM_LIFT      "      Black lift from room light" 0.004 0.0 0.05 0.001
 #pragma parameter ZGM_DITHER    "      Dither (hides banding in the gradient)" 1.0 0.0 2.0 0.05
 #pragma parameter ZGM_TILT_GAIN "== MOTION == Tilt (accelerometer) gain" 1.0 0.0 4.0 0.05
-#pragma parameter ZGM_YAW_GAIN  "      Turn (gyroscope) gain" 1.0 0.0 4.0 0.05
+#pragma parameter ZGM_YAW_GAIN  "      Turn (gyroscope) gain" 0.60 0.0 4.0 0.05
 #pragma parameter ZGM_RANGE     "      Slide per radian (screen widths)" 0.60 0.1 4.0 0.05
 #pragma parameter ZGM_LIMIT     "      Furthest it may slide" 0.40 0.05 1.5 0.01
 #pragma parameter ZGM_FLIP_X    "      Invert horizontal slide" 0.0 0.0 1.0 1.0
