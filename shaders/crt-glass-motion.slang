@@ -2,11 +2,13 @@
 
 /*
    CRT glass, moving with the device
-   Last pass for CRT presets. Adds a faint glow of room light on the curved glass, the way a real tube had on top of
-   the phosphors. The glow slides when the handheld is tilted (accelerometer) or turned (gyroscope, through
-   motion-state.slang). The picture itself is never shifted or filtered, so pixels stay exactly where the integer
-   scaling and the CRT passes put them; only light is added on top. Everything here can be switched off with
-   "CRT glass" (ZGM_ENABLE), or just set Glow strength to 0.
+   Last pass for CRT presets. Adds a soft hotspot of room light on the curved glass, the way a real tube had on top
+   of the phosphors. The light follows the same law as the glare of libretro's handheld/glare.slang (a gaussian that
+   pulls the picture toward white, spread 0.25 screen heights, strength 0.08: the library's 0.15 looks like a lamp) and adds the tube's own parts: it stays
+   inside the curved outline, and it slides when the handheld is tilted (accelerometer) or turned (gyroscope,
+   through motion-state.slang). The picture itself is never shifted or filtered, so pixels stay exactly where the
+   integer scaling and the CRT passes put them; only light is added on top. Everything here can be switched off
+   with "CRT glass" (ZGM_ENABLE), or just set Glow strength to 0.
 
    Geometry: on a convex screen the reflection sits where the glass normal bisects the light and the eye, and the
    normal turns with the device, so the reflection slides the opposite way to the turn. Tilt comes from the change
@@ -45,6 +47,7 @@ layout(std140, set = 0, binding = 0) uniform UBO
    float ZGM_WARM;
    float ZGM_RIM;
    float ZGM_LIFT;
+   float ZGM_DITHER;
    float ZGM_TILT_GAIN;
    float ZGM_YAW_GAIN;
    float ZGM_RANGE;
@@ -64,17 +67,18 @@ layout(std140, set = 0, binding = 0) uniform UBO
 } global;
 
 #pragma parameter ZGM_ENABLE    "=== CRT glass glow, moving with the device (OFF/ON) ===" 1.0 0.0 1.0 1.0
-#pragma parameter ZGM_INTENSITY "      Glow strength" 0.040 0.0 0.4 0.005
-#pragma parameter ZGM_SIZE      "      Glow size (screen heights)" 0.40 0.1 1.5 0.02
-#pragma parameter ZGM_LIGHT_X   "      Resting position X (0 = left, 1 = right)" 0.30 -0.5 1.5 0.01
-#pragma parameter ZGM_LIGHT_Y   "      Resting position Y (0 = top, 1 = bottom)" 0.25 -0.5 1.5 0.01
+#pragma parameter ZGM_INTENSITY "      Glow strength (how far it pulls toward white)" 0.08 0.0 1.0 0.01
+#pragma parameter ZGM_SIZE      "      Glow spread (screen heights)" 0.25 0.05 1.0 0.01
+#pragma parameter ZGM_LIGHT_X   "      Resting position X (0 = left, 1 = right)" 0.35 -0.5 1.5 0.01
+#pragma parameter ZGM_LIGHT_Y   "      Resting position Y (0 = top, 1 = bottom)" 0.35 -0.5 1.5 0.01
 #pragma parameter ZGM_WINDOW    "      Window-shaped instead of a plain glow" 0.0 0.0 1.0 0.1
 #pragma parameter ZGM_WARM      "      Warm tint" 0.25 0.0 1.0 0.05
 #pragma parameter ZGM_RIM       "      Glass edge sheen" 0.20 0.0 2.0 0.05
 #pragma parameter ZGM_LIFT      "      Black lift from room light" 0.004 0.0 0.05 0.001
+#pragma parameter ZGM_DITHER    "      Dither (hides banding in the gradient)" 1.0 0.0 2.0 0.05
 #pragma parameter ZGM_TILT_GAIN "== MOTION == Tilt (accelerometer) gain" 1.0 0.0 4.0 0.05
 #pragma parameter ZGM_YAW_GAIN  "      Turn (gyroscope) gain" 1.0 0.0 4.0 0.05
-#pragma parameter ZGM_RANGE     "      Slide per radian (screen widths)" 0.85 0.1 4.0 0.05
+#pragma parameter ZGM_RANGE     "      Slide per radian (screen widths)" 0.60 0.1 4.0 0.05
 #pragma parameter ZGM_LIMIT     "      Furthest it may slide" 0.40 0.05 1.5 0.01
 #pragma parameter ZGM_FLIP_X    "      Invert horizontal slide" 0.0 0.0 1.0 1.0
 #pragma parameter ZGM_FLIP_Y    "      Invert vertical slide" 0.0 0.0 1.0 1.0
@@ -131,6 +135,19 @@ float screenMask(vec2 uv)
    return pow(res, global.sborder);
 }
 
+// Interleaved gradient noise (Jimenez), two samples apart: triangular-distributed, -1..1, one value per colour channel.
+float ign(vec2 p)
+{
+   return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
+}
+
+vec3 triangularDither(vec2 p)
+{
+   return vec3(ign(p) - ign(p + vec2(5.588238, 11.17)),
+               ign(p + vec2(23.0, 7.0)) - ign(p + vec2(31.0, 19.0)),
+               ign(p + vec2(47.0, 3.0)) - ign(p + vec2(61.0, 29.0)));
+}
+
 // Signed distance to a rounded box centred on the origin.
 float roundBox(vec2 p, vec2 halfSize, float r)
 {
@@ -175,10 +192,10 @@ void main()
       vec2 p = (vTexCoord - (vec2(global.ZGM_LIGHT_X, global.ZGM_LIGHT_Y) + shift)) * vec2(aspect, 1.0);
 
       // Plain glow: a wide gaussian. Optional window: rounded box with two frame bars, blended in with ZGM_WINDOW.
-      float sigma = global.ZGM_SIZE * 0.5;
+      float sigma = global.ZGM_SIZE;
       float glow = exp(-dot(p, p) / (2.0 * sigma * sigma));
 
-      vec2 halfSize = vec2(global.ZGM_SIZE * 0.85, global.ZGM_SIZE * 0.6) * 0.5;
+      vec2 halfSize = vec2(global.ZGM_SIZE * 0.85, global.ZGM_SIZE * 0.6) * 0.8;
       float sdf = roundBox(p, halfSize, min(halfSize.x, halfSize.y) * 0.25);
       float win = 1.0 - smoothstep(-0.035, 0.035, sdf);
       float bars = max(1.0 - smoothstep(0.004, 0.016, abs(p.x)), 1.0 - smoothstep(0.004, 0.016, abs(p.y)));
@@ -191,7 +208,10 @@ void main()
 
       vec3 tint = mix(vec3(1.0), vec3(1.0, 0.90, 0.74), global.ZGM_WARM);
       float inside = screenMask(vTexCoord);
-      col += inside * tint * (global.ZGM_INTENSITY * (refl * (1.0 + rim) + rim * 0.5) + global.ZGM_LIFT);
+      // Like glare.slang: the picture is pulled toward the light's colour by the glow, so bright pixels stay bright and black rises.
+      float k = inside * global.ZGM_INTENSITY * (refl * (1.0 + rim) + rim * 0.5);
+      col = mix(col, tint, clamp(k, 0.0, 0.85)) + inside * tint * global.ZGM_LIFT;
+      col += inside * triangularDither(gl_FragCoord.xy) * (global.ZGM_DITHER / 255.0);
    }
 
    if (global.ZGM_SHOW_STATE > 0.5)

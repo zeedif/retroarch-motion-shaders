@@ -12,11 +12,13 @@ Pokefan531, lcd-grid-v2 by cgwg, response-time by hunterk and others); nothing f
 
 | File | What it does |
 |---|---|
-| `shaders/crt-glass-motion.slang` | Last pass for CRT presets: a faint glow of room light on the glass that slides with tilt and turn. Never moves or filters the picture, so integer-scaled pixels stay where they are. Kept inside the curved screen outline, using the same `warpX/warpY/c_shape/csize/bsize1/sborder` parameters as crt-guest-advanced (RetroArch shares them between passes); that match holds while guest's own integer-scaling (`IOS`), overscan and raster-bloom options stay at 0. Off with `ZGM_ENABLE`, or strength 0. |
+| `shaders/crt-glass-motion.slang` | Last pass for CRT presets: a soft hotspot of room light on the glass (the same law as the library's `glare.slang`: gaussian, pulls the picture toward white) that slides with tilt and turn. Never moves or filters the picture, so integer-scaled pixels stay where they are. Kept inside the curved screen outline, using the same `warpX/warpY/c_shape/csize/bsize1/sborder` parameters as crt-guest-advanced (RetroArch shares them between passes); that match holds while guest's own integer-scaling (`IOS`), overscan and raster-bloom options stay at 0. Off with `ZGM_ENABLE`, or strength 0. |
 | `shaders/motion-state.slang` | Keeps the device's yaw (turn about the gravity axis), integrated from the gyroscope and leaking back to zero, in the alpha channel of a pass that otherwise passes the picture through. Gravity cannot show yaw, so this is the only way a shader can use the gyroscope for it. |
+| `shaders/pt-passthrough.slang` | Passes the picture through, named `Pixel_Transparency`: the texture `sunlight_shimmer.slang` composes its light over. Lets the shimmer be appended to chains that have no real Pixel Transparency pass (CRT, Game Boy, GBA). |
 | `shaders/sensor-probe.slang` | Diagnostic: draws the three sensor vectors as bars. |
 | `presets/sensor-probe.slangp` | Preset for the probe. |
 | `tools/make_preset.py` | Takes any libretro preset, resolves its paths, applies parameter overrides and appends the two motion passes. RetroArch cannot append passes to a `#reference` preset, so the result lists every pass. |
+| `tools/patch_handheld.py` | Writes motion-aware copies of the library's Game Boy pass 4, Pixel Transparency and Sunlight Shimmer (the shaders that cast the LCD drop shadow and the glare). They take the accelerometer's normalised gravity direction as it is, which barely changes when a console is held upright and pitched, so nothing follows the console. The copies use the change of tilt since the rest pose instead; the shadow's look and travel are the library's own. Adds `ZGM_TILT_FULL` (degrees for the full travel), `ZGM_TEST_X/Y` (pretend a tilt) and `ZGM_SHOW_TILT` (draws the tilt vector in a corner box). Nothing of the library's code is stored here. |
 | `tools/build_android.py` | Builds the presets I use on the Thor into `presets/android/` (one folder per core, named as RetroArch's `config/` expects). |
 
 ## Using it on Android
@@ -51,11 +53,15 @@ and the glow stays put.
 
 ## Presets built for the Thor
 
+**Where the lights rest** (35% from the left, 35% from the top, everywhere): CRT presets `Resting position X/Y` (`ZGM_LIGHT_X/Y`) under *CRT glass glow*; Game Boy and Game Boy Color `X` / `Y` (`PT_LIGHT_X/Y`) under *Light source distance* of the sunlight shimmer; GBA `Light source X` / `Y` (`LIGHT_X/Y`) of the glare. The shimmer is in the Game Boy, Game Boy Color and GBA chains but starts off (`PT_SUNLIGHT_ENABLE`), without its rainbow (`PT_RAINBOW_ENABLE`: the colour bands a Game Boy Color's polarizer film shows in sunlight, not something other screens have). `LIGHT_REST` in `tools/build_android.py` sets all of them when presets are rebuilt.
+
+Light strength is 0.08 everywhere the library's default is 0.15 (CRT `Glow strength` `ZGM_INTENSITY`, shimmer glare `PT_GLARE_INTENSITY`; the GBA glare stays at 0.05): at 0.15 it looks like a lamp in front of the screen. Travel is aligned too: 20 degrees of tilt moves a light about 0.2 of the screen (CRT `Slide per radian` `ZGM_RANGE` 0.6, shimmer `Tilt range` `PT_LIGHT_RANGE` 0.20, GBA glare `Tilt range` `LIGHT_RANGE` 0.6).
+
 - **NES/FDS, SNES**: crt-guest-advanced with its composite NTSC chain, CGWG mask (the Lottes triad mask drowns the scanlines at ~320 ppi),
   tube curvature `warpX/warpY` (0 = flat), plus the two motion passes.
 - **N64, PS1**: crt-guest-advanced (non-NTSC) with the same look. N64 needs the Angrylion RDP in Mupen64Plus-Next: GLideN64 runs on GL, where
   slang shaders do not apply.
-- **Game Boy**: `handheld/gameboy.slangp` with the Pocket palette; its drop shadow already follows the accelerometer.
-- **Game Boy Color**: the library's `sunlight_shimmer-authentic_gbc_fast` chain (subpixel LCD, transparent light pixels, shadow that follows tilt).
-  A chain that leaves out `film_noise_cache.slang` is silently dropped by RetroArch and the picture comes out unfiltered.
-- **GBA**: response time, BGR subpixel LCD (gamma 2.6), Pokefan531's colour LUT with darkening for the unlit AGB-001, faint glare, for every game: the community sources found no systematic palette change in games released after the backlit models, and recommend one correction per platform (games with their own colour setting, such as Sonic Advance 3 or Final Fantasy Tactics Advance, should have it set to the plain GBA option).
+- **Game Boy**: `handheld/gameboy.slangp` with the Pocket palette, using the patched pass 4 so the drop shadow follows the change of tilt (`ZGM_TILT_FULL` 20 degrees for the full 2.5-unit travel). Sunlight shimmer is in the chain, off.
+- **Game Boy Color**: the library's `sunlight_shimmer-authentic_gbc_fast` chain (subpixel LCD, transparent light pixels, shadow that follows tilt through the patched pixel_transparency). The shimmer is off until switched on in the shader menu (`PT_SUNLIGHT_ENABLE`); on, it shows only the glare (the rainbow is a parameter away). Its light rests at 30% / 30% from the top left.
+  (A chain that uses `sunlight_shimmer` without `film_noise_cache.slang` is silently dropped by RetroArch and the picture comes out unfiltered.)
+- **GBA**: response time, BGR subpixel LCD (gamma 2.6), Pokefan531's colour LUT with darkening for the unlit AGB-001, faint glare, for every game: the community sources found no systematic palette change in games released after the backlit models, and recommend one correction per platform (games with their own colour setting, such as Sonic Advance 3 or Final Fantasy Tactics Advance, should have it set to the plain GBA option). Sunlight shimmer is in the chain, off.
