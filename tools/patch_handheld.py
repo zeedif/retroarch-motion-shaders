@@ -20,13 +20,23 @@ two passes of one chain declare must read the same in both, or RetroArch refuses
 import os, shutil, sys
 
 REST_FN = '''
-// Tilt since the rest pose, as shadow-offset units (-1..1, texture axes: x right, y down). A shadow falls on the side the glass normal turns to.
-vec2 restRelativeTilt(vec3 a, vec3 r, float fullDegrees) {
-    if (length(a) < 0.3) return vec2(0.0);
-    vec3 au = normalize(a);
+// Shadow of the pixels on the reflective layer behind them. A lamp fixed in the room lights the console: overhead (weight `above`, so the
+// orientation of gravity at the rest pose counts) and in front of the viewer, up and to the left (`lamp`). The console turns as gravity says
+// (shortest turn from the rest pose, exaggerated by 90 / fullDegrees so a small tilt is enough); the shadow lies opposite to the light, by
+// depth * tan(refracted angle) through glass (n = 1.5). Returns the library's tilt units (texture axes: x right, y down, about -1..1) that
+// gb-pass4 / pixel_transparency multiply by their max offset.
+vec2 shadowTilt(vec3 a, vec3 r, float fullDegrees, float above, vec2 lamp) {
+    vec3 au = (length(a) > 0.3) ? normalize(a) : vec3(0.0, 0.0, 1.0);
     vec3 ru = (length(r) > 0.3) ? normalize(r) : au;
-    vec3 d = cross(au, ru);
-    return clamp(vec2(d.y, d.x) / sin(radians(fullDegrees)), vec2(-1.0), vec2(1.0));
+    vec3 L = normalize(above * ru + normalize(vec3(-lamp.x, lamp.y, 1.0)));
+    vec3 k = cross(ru, au);
+    float s = length(k);
+    if (s > 1e-5) {
+        vec3 kn = k / s;
+        float ang = min(atan(s, dot(ru, au)) * (90.0 / fullDegrees), 2.6);
+        L = L * cos(ang) + cross(kn, L) * sin(ang) + kn * dot(kn, L) * (1.0 - cos(ang));
+    }
+    return vec2(-L.x, L.y) * 1.118 / sqrt(2.25 - dot(L.xy, L.xy));
 }
 '''
 
@@ -46,19 +56,24 @@ def patch_gb_pass4(t):
             '#pragma parameter ZGM_TILT_FULL "Motion: tilt that gives the full travel (degrees)" 30.0 5.0 90.0 1.0\n'
             '#pragma parameter ZGM_TEST_X "Motion test: pretend the console is tilted right (-1..1)" 0.0 -1.0 1.0 0.05\n'
             '#pragma parameter ZGM_TEST_Y "Motion test: pretend the console is tilted down (-1..1)" 0.0 -1.0 1.0 0.05\n'
+            '#pragma parameter ZGM_SHADOW_ABOVE "Shadow: overhead light, weight of gravity orientation" 0.4 0.0 2.0 0.05\n'
+            '#pragma parameter ZGM_SHADOW_LAMP_X "Shadow: lamp ahead, to the left (negative = right)" 1.8 -2.0 2.0 0.05\n'
+            '#pragma parameter ZGM_SHADOW_LAMP_Y "Shadow: lamp ahead, above middle (negative = below)" 1.3 -2.0 2.0 0.05\n'
             '#pragma parameter ZGM_SHOW_TILT "Motion test: draw the tilt vector in the corner" 0.0 0.0 1.0 1.0', 'gb include')
-    t = sub(t, 'float shadow_max_offset;\n} registers;',
-            'float shadow_max_offset;\n\tfloat ZGM_TILT_FULL;\n\tfloat ZGM_TEST_X;\n\tfloat ZGM_TEST_Y;\n\tfloat ZGM_SHOW_TILT;\n} registers;', 'gb push')
+    # the push block is already at 108 of the 128 bytes Vulkan guarantees: the new parameters go in the UBO
+    t = sub(t, 'vec4 GameBoyDotMatrixAlphaBlendSize;\n} global;',
+            'vec4 GameBoyDotMatrixAlphaBlendSize;\n    float ZGM_TILT_FULL;\n    float ZGM_TEST_X;\n    float ZGM_TEST_Y;\n    float ZGM_SHOW_TILT;\n'
+            '    float ZGM_SHADOW_ABOVE;\n    float ZGM_SHADOW_LAMP_X;\n    float ZGM_SHADOW_LAMP_Y;\n} global;', 'gb ubo')
     t = sub(t, 'layout(location = 2) out vec2 shadow_offset;', 'layout(location = 2) out vec2 shadow_offset;\nlayout(location = 3) out vec2 zgm_tilt;', 'gb vs out')
     t = sub(t, '    return vec2(-dir.x, dir.y);\n}\n', '    return vec2(-dir.x, dir.y);\n}\n' + REST_FN.replace('fullDegrees', 'fullDegrees'), 'gb fn')
-    t = sub(t, 'gravity = getOrientedTilt(accel);', 'gravity = restRelativeTilt(accel, global.AccelerometerRest, registers.ZGM_TILT_FULL);', 'gb call')
+    t = sub(t, 'gravity = getOrientedTilt(accel);', 'gravity = shadowTilt(accel, global.AccelerometerRest, global.ZGM_TILT_FULL, global.ZGM_SHADOW_ABOVE, vec2(global.ZGM_SHADOW_LAMP_X, global.ZGM_SHADOW_LAMP_Y));', 'gb call')
     t = sub(t, '    vec2 shadow_offset_px = vec2(registers.shadow_offset_x, registers.shadow_offset_y);',
-            '    gravity = clamp(gravity + vec2(registers.ZGM_TEST_X, registers.ZGM_TEST_Y), vec2(-1.0), vec2(1.0));\n'
+            '    gravity = clamp(gravity + vec2(global.ZGM_TEST_X, global.ZGM_TEST_Y), vec2(-1.0), vec2(1.0));\n'
             '    zgm_tilt = gravity;\n'
             '    vec2 shadow_offset_px = vec2(registers.shadow_offset_x, registers.shadow_offset_y);', 'gb test')
     t = sub(t, 'layout(location = 2) in vec2 shadow_offset;', 'layout(location = 2) in vec2 shadow_offset;\nlayout(location = 3) in vec2 zgm_tilt;', 'gb fs in')
     t = sub(t, '    FragColor = out_color;\n}',
-            '    if (registers.ZGM_SHOW_TILT > 0.5) {\n'
+            '    if (global.ZGM_SHOW_TILT > 0.5) {\n'
             '        vec2 q = vTexCoord * registers.OutputSize.xy - (registers.OutputSize.xy - vec2(80.0));\n'
             '        if (abs(q.x) < 62.0 && abs(q.y) < 62.0) {\n'
             '            out_color = vec4(0.0, 0.0, 0.0, 1.0);\n'
@@ -77,12 +92,15 @@ def patch_pt(t):
             '#pragma parameter ZGM_TILT_FULL "Motion: tilt that gives the full travel (degrees)" 30.0 5.0 90.0 1.0\n'
             '#pragma parameter ZGM_TEST_X "Motion test: pretend the console is tilted right (-1..1)" 0.0 -1.0 1.0 0.05\n'
             '#pragma parameter ZGM_TEST_Y "Motion test: pretend the console is tilted down (-1..1)" 0.0 -1.0 1.0 0.05\n'
+            '#pragma parameter ZGM_SHADOW_ABOVE "Shadow: overhead light, weight of gravity orientation" 0.4 0.0 2.0 0.05\n'
+            '#pragma parameter ZGM_SHADOW_LAMP_X "Shadow: lamp ahead, to the left (negative = right)" 1.8 -2.0 2.0 0.05\n'
+            '#pragma parameter ZGM_SHADOW_LAMP_Y "Shadow: lamp ahead, above middle (negative = below)" 1.3 -2.0 2.0 0.05\n'
             '#pragma parameter ZGM_SHOW_TILT "Motion test: draw the tilt vector in the corner" 0.0 0.0 1.0 1.0', 'pt pragma')
     t = sub(t, 'float PT_SHADOW_EDGE_ENABLE;\n} global;',
-            'float PT_SHADOW_EDGE_ENABLE;\n    float ZGM_TILT_FULL;\n    float ZGM_TEST_X;\n    float ZGM_TEST_Y;\n    float ZGM_SHOW_TILT;\n} global;', 'pt ubo')
+            'float PT_SHADOW_EDGE_ENABLE;\n    float ZGM_TILT_FULL;\n    float ZGM_TEST_X;\n    float ZGM_TEST_Y;\n    float ZGM_SHOW_TILT;\n    float ZGM_SHADOW_ABOVE;\n    float ZGM_SHADOW_LAMP_X;\n    float ZGM_SHADOW_LAMP_Y;\n} global;', 'pt ubo')
     t = sub(t, 'layout(location = 3) out vec2 shadow_offset_raw;', 'layout(location = 3) out vec2 shadow_offset_raw;\nlayout(location = 4) out vec2 zgm_tilt;', 'pt vs out')
     t = sub(t, '    return vec2(-dir.x, dir.y);\n}\n', '    return vec2(-dir.x, dir.y);\n}\n' + REST_FN, 'pt fn')
-    t = sub(t, 'gravity = getOrientedTilt(accel);', 'gravity = restRelativeTilt(accel, global.AccelerometerRest, global.ZGM_TILT_FULL);', 'pt call')
+    t = sub(t, 'gravity = getOrientedTilt(accel);', 'gravity = shadowTilt(accel, global.AccelerometerRest, global.ZGM_TILT_FULL, global.ZGM_SHADOW_ABOVE, vec2(global.ZGM_SHADOW_LAMP_X, global.ZGM_SHADOW_LAMP_Y));', 'pt call')
     t = sub(t, '\n\n    // Shadow offset: motion or static.',
             '\n    gravity = clamp(gravity + vec2(global.ZGM_TEST_X, global.ZGM_TEST_Y), vec2(-1.0), vec2(1.0));\n'
             '    zgm_tilt = gravity;\n\n    // Shadow offset: motion or static.', 'pt test')

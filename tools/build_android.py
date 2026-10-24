@@ -80,11 +80,15 @@ write('Snes9x/Snes9x.slangp', crt('crt/crt-guest-advanced-ntsc.slangp', CRT_COMM
 write('Mupen64Plus-Next/Mupen64Plus-Next.slangp', crt('crt/crt-guest-advanced.slangp', CRT_COMMON))
 write('SwanStation/SwanStation.slangp', crt('crt/crt-guest-advanced.slangp', CRT_COMMON))
 
-# Shadow look and distance are the library's own (2.0 resting offset, 2.5 travel): only the way the tilt is read changes. ZGM_TILT_FULL is the
-# tilt that reaches the full travel. The sunlight shimmer is in the chain but off until it is switched on in the shader menu.
+# Shadow look and reach are the library's (its largest offset was 2.0 + 2.5 = 4.5 units); how the offset follows the console is the physical lamp model of
+# tools/patch_handheld.py: the resting offset comes from the lamp and the orientation of gravity (so no fixed X/Y offset), and it can swing both ways
+# (4.6 units at most either way). ZGM_TILT_FULL: a tilt of that many degrees counts as a quarter turn of the light.
+# The sunlight shimmer is in the chain but off until it is switched on in the shader menu.
+SHADOW = 'shadow_offset_x=0.0', 'shadow_offset_y=0.0', 'shadow_max_offset=4.6'
+SHADOW_PT = 'PT_SHADOW_MOTION_X=0.0', 'PT_SHADOW_MOTION_Y=0.0', 'PT_SHADOW_MAX_OFFSET=4.6'
 GB = shimmer(patched(build('handheld/gameboy.slangp', SLANG, DEV, None,
                            sets=['color_toggle=1.000000', 'palette=2.000000', 'response_time=0.333000', 'integer_mode=1.000000',
-                                 'ZGM_TILT_FULL=20.0'])), 0, 0, 1)
+                                 'ZGM_TILT_FULL=20.0', *SHADOW])), 0, 0, 1)
 write('Gambatte/gb.slangp', GB)
 
 # GBC: reflective LCD, so no white backlight look: subpixel LCD, then "transparent" light pixels with their drop shadow (it shifts with the
@@ -92,7 +96,7 @@ write('Gambatte/gb.slangp', GB)
 GBC = patched(build('presets/pixel_transparency/sunlight_shimmer-authentic_gbc_fast.slangp', SLANG, DEV, None,
                     sets=['PT_SHADOW_ENABLE=1.000000', 'PT_SHADOW_MOTION=1.000000',
                           'PT_PALETTE=1.000000', 'PT_POLARIZER=0.000000', 'PT_HIGHLIGHTS=0.000000',   # warm backing, as in the author's frontlit preset
-                          'PT_SUNLIGHT_ENABLE=0', 'PT_RAINBOW_ENABLE=0', 'PT_GLARE_ENABLE=1'] + SHIMMER_LIGHT))
+                          'PT_SUNLIGHT_ENABLE=0', 'PT_RAINBOW_ENABLE=0', 'PT_GLARE_ENABLE=1', *SHADOW_PT] + SHIMMER_LIGHT))
 write('Gambatte/gbc.slangp', GBC)
 write('mGBA/gbc.slangp', GBC)
 
